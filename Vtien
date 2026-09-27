@@ -3,19 +3,21 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local TARGET_POSITION = Vector3.new(552, 70, -295)
-local RESPAWN_POSITION = Vector3.new(569, 70, -295) 
-local FINAL_POSITION = Vector3.new(549, 70, -300) 
+-- Tọa độ mặc định (sẽ thay đổi khi bấm nút)
+local TARGET_POSITION = Vector3.new(552, 70, -433)
+local RESPAWN_POSITION = Vector3.new(567, 70, -433) 
+local FINAL_POSITION = Vector3.new(550, 70, -429) 
 
 local currentState = "OFF" 
 local tpConnection = nil
 local allPrompts = {} 
 local waitingForPromptToMove = false 
-local autoBring2State = false 
+local currentFarmMode = 0 -- 0: OFF, 1: Khu vực 1, 2: Khu vực 2
 local guiVisible = false
 
 local function isValidPrompt(prompt)
@@ -40,7 +42,7 @@ screenGui.Name = "SmartAutoGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- Nút ImageButton để bật/tắt (Dùng icon bánh răng của Roblox)
+-- Nút ImageButton để bật/tắt (Luôn hiển thị)
 local toggleButton = Instance.new("ImageButton")
 toggleButton.Name = "ToggleGuiButton"
 toggleButton.Size = UDim2.new(0, 45, 0, 45)
@@ -55,11 +57,12 @@ local toggleCorner = Instance.new("UICorner")
 toggleCorner.CornerRadius = UDim.new(0, 8)
 toggleCorner.Parent = toggleButton
 
--- Khung nền chính
+-- Khung nền chính (Mở rộng chiều cao để chứa 4 nút)
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 350, 0, 140)
-mainFrame.Position = UDim2.new(0.05, 0, 0.4, 0)
+mainFrame.Size = UDim2.new(0, 350, 0, 305) -- Đã tăng kích thước để vừa 4 nút
+mainFrame.AnchorPoint = Vector2.new(0.5, 0.5) -- Đặt tâm của khung vào đúng chính giữa khung
+mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
@@ -88,44 +91,56 @@ local rainbowColor = ColorSequence.new({
     ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 255))
 })
 
--- Nút Auto
-local button2 = Instance.new("TextButton")
-button2.Name = "AutoBring2Button"
-button2.Size = UDim2.new(1, -20, 0, 45)
-button2.Position = UDim2.new(0, 10, 0, 40)
-button2.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Màu đỏ mặc định
-button2.Text = "" 
-button2.AutoButtonColor = false
-button2.Parent = mainFrame
+-- Hàm tạo nút GUI
+local function createButton(name, pos, text)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Size = UDim2.new(1, -20, 0, 45)
+    btn.Position = pos
+    btn.BackgroundColor3 = Color3.fromRGB(200, 50, 50) 
+    btn.Text = "" 
+    btn.AutoButtonColor = false
+    btn.Parent = mainFrame
 
-local buttonStroke = Instance.new("UIStroke")
-buttonStroke.Thickness = 3
-buttonStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-buttonStroke.Parent = button2
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 3
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Parent = btn
 
-local buttonStrokeGradient = Instance.new("UIGradient")
-buttonStrokeGradient.Color = rainbowColor
-buttonStrokeGradient.Parent = buttonStroke
+    local strokeGrad = Instance.new("UIGradient")
+    strokeGrad.Color = rainbowColor
+    strokeGrad.Parent = stroke
 
--- Text cầu vồng
-local buttonTextLabel = Instance.new("TextLabel")
-buttonTextLabel.Size = UDim2.new(1, 0, 1, 0)
-buttonTextLabel.BackgroundTransparency = 1
-buttonTextLabel.Text = "CLICK TO START (Hoặc nhấn F)"
-buttonTextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-buttonTextLabel.TextSize = 16
-buttonTextLabel.Font = Enum.Font.GothamBold
-buttonTextLabel.Parent = button2
+    local txtLabel = Instance.new("TextLabel")
+    txtLabel.Size = UDim2.new(1, 0, 1, 0)
+    txtLabel.BackgroundTransparency = 1
+    txtLabel.Text = text
+    txtLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    txtLabel.TextSize = 16
+    txtLabel.Font = Enum.Font.GothamBold
+    txtLabel.Parent = btn
 
-local textStroke = Instance.new("UIStroke")
-textStroke.Thickness = 1.5
-textStroke.Color = Color3.fromRGB(0, 0, 0)
-textStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-textStroke.Parent = buttonTextLabel
+    local txtStroke = Instance.new("UIStroke")
+    txtStroke.Thickness = 1.5
+    txtStroke.Color = Color3.fromRGB(0, 0, 0)
+    txtStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+    txtStroke.Parent = txtLabel
 
-local textGradient = Instance.new("UIGradient")
-textGradient.Color = rainbowColor
-textGradient.Parent = buttonTextLabel
+    local txtGrad = Instance.new("UIGradient")
+    txtGrad.Color = rainbowColor
+    txtGrad.Parent = txtLabel
+    
+    return btn, txtLabel
+end
+
+-- Tạo các nút
+local button1, label1 = createButton("AutoBring1Button", UDim2.new(0, 10, 0, 40), "OFF : AUTO BRING EGG [LEFT] (F)")
+local button2, label2 = createButton("AutoBring2Button", UDim2.new(0, 10, 0, 95), "OFF : AUTO BRING EGG [RIGHT] (G)")
+local button3, label3 = createButton("ResetButton", UDim2.new(0, 10, 0, 150), "RESET CHARACTER")
+local button4, label4 = createButton("RejoinButton", UDim2.new(0, 10, 0, 205), "REJOIN SERVER")
+
+button3.BackgroundColor3 = Color3.fromRGB(255, 220, 0) -- Màu xám cho nút Reset
+button4.BackgroundColor3 = Color3.fromRGB(255, 128, 0) -- Màu xanh dương cho nút Rejoin
 
 -- Nền chữ BETA VERSION
 local betaBox = Instance.new("Frame")
@@ -144,21 +159,64 @@ betaLabel.Font = Enum.Font.GothamBold
 betaLabel.TextSize = 17
 betaLabel.Parent = betaBox
 
--- HÀM CHUYỂN TRẠNG THÁI NÚT AUTO BRING
-local function toggleAutoBringState()
-    autoBring2State = not autoBring2State
-    if autoBring2State then
-        buttonTextLabel.Text = "ON : AUTO BRING EGG"
-        button2.BackgroundColor3 = Color3.fromRGB(50, 200, 50) -- Màu xanh lá khi bật
+-- HÀM CHUYỂN TRẠNG THÁI VÀ ĐỔI TỌA ĐỘ
+local function toggleFarmMode(mode)
+    if currentFarmMode == mode then
+        currentFarmMode = 0
+        label1.Text = "OFF : AUTO BRING EGG [LEFT] (F)"
+        button1.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        
+        label2.Text = "OFF : AUTO BRING EGG [RIGHT] (G)"
+        button2.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
     else
-        buttonTextLabel.Text = "OFF : AUTO BRING EGG"
-        button2.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Màu đỏ khi tắt
+        currentFarmMode = mode
+        if mode == 1 then
+            TARGET_POSITION = Vector3.new(552, 70, -433)
+            RESPAWN_POSITION = Vector3.new(567, 70, -433) 
+            FINAL_POSITION = Vector3.new(550, 70, -429)
+            
+            label1.Text = "ON : AUTO BRING EGG [LEFT] (F)"
+            button1.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+            
+            label2.Text = "OFF : AUTO BRING EGG [RIGHT] (G)"
+            button2.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        elseif mode == 2 then
+            TARGET_POSITION = Vector3.new(552, 70, -295)
+            RESPAWN_POSITION = Vector3.new(569, 70, -295) 
+            FINAL_POSITION = Vector3.new(549, 70, -300)
+            
+            label1.Text = "OFF : AUTO BRING EGG [LEFT] (F)"
+            button1.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+            
+            label2.Text = "ON : AUTO BRING EGG [RIGHT] (G)"
+            button2.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+        end
     end
 end
 
-button2.MouseButton1Click:Connect(toggleAutoBringState)
+-- Chức năng các nút
+button1.MouseButton1Click:Connect(function() toggleFarmMode(1) end)
+button2.MouseButton1Click:Connect(function() toggleFarmMode(2) end)
 
--- CHỨC NĂNG BẬT TẮT MENU (Dành cho nút icon)
+button3.MouseButton1Click:Connect(function() 
+    -- Chức năng Reset
+    if player.Character and player.Character:FindFirstChild("Humanoid") then
+        player.Character.Humanoid.Health = 0
+    end
+end)
+
+button4.MouseButton1Click:Connect(function() 
+    -- Chức năng Rejoin Server hiện tại
+    if #Players:GetPlayers() <= 1 then
+        player:Kick("Rejoining...")
+        task.wait()
+        TeleportService:Teleport(game.PlaceId, player)
+    else
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
+    end
+end)
+
+-- CHỨC NĂNG BẬT TẮT MENU
 local function toggleGuiState()
     guiVisible = not guiVisible
     mainFrame.Visible = guiVisible
@@ -170,10 +228,11 @@ toggleButton.MouseButton1Click:Connect(toggleGuiState)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed then
         if input.KeyCode == Enum.KeyCode.R then
-            -- Nhấn R để ẩn/hiện toàn bộ GUI (bao gồm cả nút nhỏ)
-            screenGui.Enabled = not screenGui.Enabled
+            toggleGuiState() -- Sửa: Phím R giờ chỉ ẩn mainFrame, không làm ẩn nút bật tắt
         elseif input.KeyCode == Enum.KeyCode.F then
-            toggleAutoBringState()
+            toggleFarmMode(1)
+        elseif input.KeyCode == Enum.KeyCode.G then
+            toggleFarmMode(2)
         end
     end
 end)
@@ -261,7 +320,7 @@ ProximityPromptService.PromptShown:Connect(function(prompt)
 end)
 
 ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, triggeredPlayer)
-    if triggeredPlayer == player and autoBring2State and isValidPrompt(prompt) then
+    if triggeredPlayer == player and (currentFarmMode ~= 0) and isValidPrompt(prompt) then
         if currentState == "OFF" then
             startScript()
         end
@@ -271,7 +330,7 @@ end)
 ProximityPromptService.PromptTriggered:Connect(function(prompt, triggeredPlayer)
     if triggeredPlayer == player and isValidPrompt(prompt) then
         
-        if autoBring2State and currentState == "OFF" then
+        if (currentFarmMode ~= 0) and currentState == "OFF" then
             startScript()
         end
 
