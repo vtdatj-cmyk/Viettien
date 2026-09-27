@@ -1,0 +1,330 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local TARGET_POSITION = Vector3.new(552, 70, -295)
+local RESPAWN_POSITION = Vector3.new(569, 70, -295) 
+local FINAL_POSITION = Vector3.new(549, 70, -300) 
+
+local currentState = "OFF" 
+local tpConnection = nil
+local allPrompts = {} 
+local waitingForPromptToMove = false 
+local autoBring2State = false 
+local guiVisible = false
+
+local function isValidPrompt(prompt)
+    if not (prompt and prompt:IsA("ProximityPrompt")) then return false end
+    
+    local action = string.lower(prompt.ActionText or "")
+    local object = string.lower(prompt.ObjectText or "")
+    local name = string.lower(prompt.Name or "")
+    
+    local combined = action .. " " .. object .. " " .. name
+    
+    if string.find(combined, "egg") and string.find(combined, "steal") then
+        return true
+    end
+    
+    return false
+end
+
+-- GUI BẮT ĐẦU TỪ ĐÂY
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SmartAutoGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+-- Nút ImageButton để bật/tắt (Dùng icon bánh răng của Roblox)
+local toggleButton = Instance.new("ImageButton")
+toggleButton.Name = "ToggleGuiButton"
+toggleButton.Size = UDim2.new(0, 45, 0, 45)
+toggleButton.Position = UDim2.new(0, 20, 0, 20)
+toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+toggleButton.Image = "rbxassetid://6031280882"
+toggleButton.Active = true
+toggleButton.Draggable = true
+toggleButton.Parent = screenGui
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 8)
+toggleCorner.Parent = toggleButton
+
+-- Khung nền chính
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 350, 0, 140)
+mainFrame.Position = UDim2.new(0.05, 0, 0.4, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true 
+mainFrame.Visible = guiVisible
+mainFrame.Parent = screenGui
+
+-- Tiêu đề góc trên
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 0, 30)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "Auto Bring Egg Script [BETA]"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextSize = 18
+titleLabel.Font = Enum.Font.Gotham
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = mainFrame
+
+-- Dải màu Cầu Vồng
+local rainbowColor = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+    ColorSequenceKeypoint.new(0.2, Color3.fromRGB(255, 255, 0)),
+    ColorSequenceKeypoint.new(0.4, Color3.fromRGB(0, 255, 0)),
+    ColorSequenceKeypoint.new(0.6, Color3.fromRGB(0, 255, 255)),
+    ColorSequenceKeypoint.new(0.8, Color3.fromRGB(0, 0, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 255))
+})
+
+-- Nút Auto
+local button2 = Instance.new("TextButton")
+button2.Name = "AutoBring2Button"
+button2.Size = UDim2.new(1, -20, 0, 45)
+button2.Position = UDim2.new(0, 10, 0, 40)
+button2.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Màu đỏ mặc định
+button2.Text = "" 
+button2.AutoButtonColor = false
+button2.Parent = mainFrame
+
+local buttonStroke = Instance.new("UIStroke")
+buttonStroke.Thickness = 3
+buttonStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+buttonStroke.Parent = button2
+
+local buttonStrokeGradient = Instance.new("UIGradient")
+buttonStrokeGradient.Color = rainbowColor
+buttonStrokeGradient.Parent = buttonStroke
+
+-- Text cầu vồng
+local buttonTextLabel = Instance.new("TextLabel")
+buttonTextLabel.Size = UDim2.new(1, 0, 1, 0)
+buttonTextLabel.BackgroundTransparency = 1
+buttonTextLabel.Text = "CLICK TO START (Hoặc nhấn F)"
+buttonTextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+buttonTextLabel.TextSize = 16
+buttonTextLabel.Font = Enum.Font.GothamBold
+buttonTextLabel.Parent = button2
+
+local textStroke = Instance.new("UIStroke")
+textStroke.Thickness = 1.5
+textStroke.Color = Color3.fromRGB(0, 0, 0)
+textStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+textStroke.Parent = buttonTextLabel
+
+local textGradient = Instance.new("UIGradient")
+textGradient.Color = rainbowColor
+textGradient.Parent = buttonTextLabel
+
+-- Nền chữ BETA VERSION
+local betaBox = Instance.new("Frame")
+betaBox.Size = UDim2.new(1, -20, 0, 30)
+betaBox.Position = UDim2.new(0, 10, 1, -40)
+betaBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+betaBox.BorderSizePixel = 0
+betaBox.Parent = mainFrame
+
+local betaLabel = Instance.new("TextLabel")
+betaLabel.Size = UDim2.new(1, 0, 1, 0)
+betaLabel.BackgroundTransparency = 1
+betaLabel.Text = "Script by @excadnerazp_01"
+betaLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+betaLabel.Font = Enum.Font.GothamBold
+betaLabel.TextSize = 17
+betaLabel.Parent = betaBox
+
+-- HÀM CHUYỂN TRẠNG THÁI NÚT AUTO BRING
+local function toggleAutoBringState()
+    autoBring2State = not autoBring2State
+    if autoBring2State then
+        buttonTextLabel.Text = "ON : AUTO BRING EGG"
+        button2.BackgroundColor3 = Color3.fromRGB(50, 200, 50) -- Màu xanh lá khi bật
+    else
+        buttonTextLabel.Text = "OFF : AUTO BRING EGG"
+        button2.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Màu đỏ khi tắt
+    end
+end
+
+button2.MouseButton1Click:Connect(toggleAutoBringState)
+
+-- CHỨC NĂNG BẬT TẮT MENU (Dành cho nút icon)
+local function toggleGuiState()
+    guiVisible = not guiVisible
+    mainFrame.Visible = guiVisible
+end
+
+toggleButton.MouseButton1Click:Connect(toggleGuiState)
+
+-- CÀI ĐẶT PHÍM TẮT
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed then
+        if input.KeyCode == Enum.KeyCode.R then
+            -- Nhấn R để ẩn/hiện toàn bộ GUI (bao gồm cả nút nhỏ)
+            screenGui.Enabled = not screenGui.Enabled
+        elseif input.KeyCode == Enum.KeyCode.F then
+            toggleAutoBringState()
+        end
+    end
+end)
+
+-- HỆ THỐNG LOGIC VÀ CHỨC NĂNG CỐT LÕI
+local function registerPrompt(prompt)
+    if prompt:IsA("ProximityPrompt") then
+        if isValidPrompt(prompt) then
+            prompt.HoldDuration = 0
+            prompt.MaxActivationDistance = 15 
+            table.insert(allPrompts, prompt)
+        end
+        
+        prompt.Destroying:Connect(function()
+            local idx = table.find(allPrompts, prompt)
+            if idx then
+                table.remove(allPrompts, idx)
+            end
+        end)
+    end
+end
+
+for _, desc in ipairs(Workspace:GetDescendants()) do
+    registerPrompt(desc)
+end
+Workspace.DescendantAdded:Connect(registerPrompt)
+
+local turnOffScript
+local startScript
+
+turnOffScript = function()
+    currentState = "OFF"
+    waitingForPromptToMove = false
+    if tpConnection then
+        tpConnection:Disconnect()
+        tpConnection = nil
+    end
+end
+
+startScript = function()
+    turnOffScript() 
+    currentState = "AUTO_TP"
+    
+    tpConnection = RunService.Heartbeat:Connect(function()
+        local character = player.Character
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            character:PivotTo(CFrame.new(TARGET_POSITION))
+        end
+    end)
+end
+
+RunService.Heartbeat:Connect(function()
+    if currentState ~= "OFF" then
+        local character = player.Character
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            local rootPos = character.HumanoidRootPart.Position
+            
+            for _, prompt in ipairs(allPrompts) do
+                if prompt.Parent and prompt.Enabled and isValidPrompt(prompt) then
+                    local part = prompt.Parent
+                    if part:IsA("BasePart") then
+                        local dist = (rootPos - part.Position).Magnitude
+                        if dist <= prompt.MaxActivationDistance then
+                            prompt:InputHoldBegin()
+                            prompt:InputHoldEnd()
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+ProximityPromptService.PromptShown:Connect(function(prompt)
+    if isValidPrompt(prompt) then
+        prompt.HoldDuration = 0
+        if currentState ~= "OFF" and prompt.Enabled then
+            task.spawn(function()
+                prompt:InputHoldBegin()
+                task.wait() 
+                prompt:InputHoldEnd()
+            end)
+        end
+    end
+end)
+
+ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, triggeredPlayer)
+    if triggeredPlayer == player and autoBring2State and isValidPrompt(prompt) then
+        if currentState == "OFF" then
+            startScript()
+        end
+    end
+end)
+
+ProximityPromptService.PromptTriggered:Connect(function(prompt, triggeredPlayer)
+    if triggeredPlayer == player and isValidPrompt(prompt) then
+        
+        if autoBring2State and currentState == "OFF" then
+            startScript()
+        end
+
+        if waitingForPromptToMove then
+            waitingForPromptToMove = false 
+            
+            task.wait(0.5)
+            
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                char:PivotTo(CFrame.new(FINAL_POSITION))
+                
+                task.wait(1.5)
+                turnOffScript()
+            end
+        end
+    end
+end)
+
+local function onCharacterAdded(character)
+    local humanoid = character:WaitForChild("Humanoid")
+
+    if currentState == "WAIT_RESPAWN" then
+        currentState = "FARM_DEATH_SPOT"
+        
+        task.wait(0.5)
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            character:PivotTo(CFrame.new(RESPAWN_POSITION))
+        end
+        
+        task.wait(0.6)
+        
+        if currentState == "FARM_DEATH_SPOT" and character and character:FindFirstChild("HumanoidRootPart") then
+            character:PivotTo(CFrame.new(FINAL_POSITION))
+            
+            task.wait(1)
+            turnOffScript()
+        end
+    end
+
+    humanoid.Died:Connect(function()
+        if currentState == "AUTO_TP" or currentState == "FARM_DEATH_SPOT" then
+            currentState = "WAIT_RESPAWN"
+            waitingForPromptToMove = false
+            if tpConnection then
+                tpConnection:Disconnect()
+                tpConnection = nil
+            end
+        end
+    end)
+end
+
+if player.Character then
+    onCharacterAdded(player.Character)
+end
+player.CharacterAdded:Connect(onCharacterAdded)
